@@ -31,6 +31,7 @@ TRH_2010_KADIN = {
     90: 3.52, 91: 3.20, 92: 2.90, 93: 2.62, 94: 2.36, 95: 2.12, 96: 1.90, 97: 1.70, 98: 1.52, 99: 1.36, 100: 1.22
 }
 
+# PROGRAMIN BEYNİ: ASGARİ ÜCRETLERİ BURADAN ÇEKECEK
 YILLIK_NET_ASGARI_UCRETLER = {
     2015: 1000.54, 2016: 1300.99, 2017: 1404.06, 2018: 1603.12, 2019: 2020.90, 2020: 2324.71,
     2021: 2825.90, 2022: 4876.50, 2023: 9954.50, 2024: 17002.12, 2025: 22000.00, 2026: 28075.50
@@ -45,14 +46,13 @@ def create_word_doc(rapor_icerik):
     doc.save(bio)
     return bio.getvalue()
 
-# --- 2. MASAÜSTÜ (EXE) HESAPLAMA MOTORUNUN HARFİYEN KOPYASI ---
 class AktueryaHesaplayici:
     def __init__(self, isim, cinsiyet, dogum_tarihi, kaza_tarihi, ise_baslama_tarihi, hesaplama_tarihi, 
-                 maluliyet_orani, kusursuzluk_orani, maas_gecmisi, guncel_asgari):
+                 maluliyet_orani, kusursuzluk_orani, maas_gecmisi, otomatik_asgari):
         
         self.isim = isim
         self.cinsiyet = cinsiyet
-        # EXE mantığındaki saniye kırılımlı hesaplamalar bozulmasın diye tekrar strptime kullanıyoruz
+        
         self.dogum_tarihi = datetime.strptime(dogum_tarihi, "%d.%m.%Y")
         self.kaza_tarihi = datetime.strptime(kaza_tarihi, "%d.%m.%Y")
         self.ise_baslama_tarihi = datetime.strptime(ise_baslama_tarihi, "%d.%m.%Y")
@@ -73,7 +73,7 @@ class AktueryaHesaplayici:
         self.maluliyet_orani = maluliyet_orani / 100.0
         self.kusursuzluk_orani = kusursuzluk_orani
         self.maas_gecmisi = maas_gecmisi
-        self.guncel_asgari = guncel_asgari
+        self.guncel_asgari = otomatik_asgari
         
         self.rapor_metni = ""
 
@@ -96,6 +96,7 @@ class AktueryaHesaplayici:
         self.rapor_metni += f"Emeklilik Tarihi (60 Yaş): {self.emeklilik_tarihi.strftime('%d.%m.%Y')}\n"
         self.rapor_metni += f"Tahmini Vefat Tarihi: {self.tahmini_olum_tarihi.strftime('%d.%m.%Y')}\n"
         self.rapor_metni += f"Maluliyet: %{self.maluliyet_orani*100} | Kusursuzluk Çarpanı: {self.kusursuzluk_orani}\n"
+        self.rapor_metni += f"Hesaplamada Baz Alınan Asgari Ücret: {self.guncel_asgari:,.2f} TL\n"
         self.rapor_metni += f"{'='*70}\n\n"
 
         genel_toplam = 0
@@ -182,7 +183,7 @@ class AktueryaHesaplayici:
 
         return toplam_tutar
 
-# --- 3. STREAMLIT WEB ARAYÜZÜ ---
+# --- STREAMLIT WEB ARAYÜZÜ ---
 st.set_page_config(page_title="Aktüerya Bilirkişisi", page_icon="⚖️", layout="wide")
 st.title("⚖️ Aktüerya Bilirkişi Paneli")
 
@@ -199,7 +200,7 @@ with c2:
     hesap = st.date_input("Hesaplama Tarihi (Bugün):", value=datetime.today(), min_value=datetime(1900, 1, 1), max_value=datetime(2100, 1, 1))
     mal = st.number_input("Maluliyet Oranı (%):", min_value=0.0, max_value=100.0, value=5.0, step=1.0)
     kusur = st.number_input("Kusursuzluk (Haklılık) Oranı (Örn: 1.0 veya 0.75):", min_value=0.0, max_value=1.0, value=1.0, step=0.01, format="%.3f")
-    asgari = st.number_input("Güncel Asgari Ücret (TL):", min_value=0.0, value=28075.50, step=100.0)
+    # GÜNCEL ASGARİ ÜCRET KUTUCUĞU ARTIK YOK!
 
 st.subheader("📊 Maaş Geçmişi")
 st.info("💡 Asgari ücretle çalışanlar için tabloyu bomboş bırakın. Farklı bir maaş varsa alttaki tabloya satır ekleyebilirsiniz.")
@@ -211,7 +212,6 @@ edit_df = st.data_editor(df_in, num_rows="dynamic", use_container_width=True,
                                         "Maaş (TL)": st.column_config.NumberColumn("Maaş (TL)", format="%.2f")})
 
 if st.button("Bilirkişi Raporunu Oluştur", type="primary", use_container_width=True):
-    # Webden gelen tarih verilerini, tam da EXE programının istediği (04.11.2023 gibi) string formata çeviriyoruz
     dt_str = dogum.strftime("%d.%m.%Y")
     kt_str = kaza.strftime("%d.%m.%Y")
     ibt_str = ise_baslama.strftime("%d.%m.%Y")
@@ -219,7 +219,18 @@ if st.button("Bilirkişi Raporunu Oluştur", type="primary", use_container_width
 
     m_gecmis = {int(r["Yıl"]): float(r["Maaş (TL)"]) for _, r in edit_df.iterrows() if pd.notna(r["Yıl"]) and pd.notna(r["Maaş (TL)"])}
     
-    calc = AktueryaHesaplayici(isim, cinsiyet, dt_str, kt_str, ibt_str, ht_str, mal, kusur, m_gecmis, asgari)
+    # --- YENİ AKILLI ASGARİ ÜCRET BULUCU ---
+    hesap_yili = hesap.year
+    if hesap_yili in YILLIK_NET_ASGARI_UCRETLER:
+        # Eğer girilen yıl sözlükte varsa, doğrudan onu al (Örn: 2026 seçildiyse 28075.50 alır)
+        otomatik_asgari = YILLIK_NET_ASGARI_UCRETLER[hesap_yili]
+    else:
+        # Eğer henüz sözlüğe eklenmemiş gelecekteki bir yıl girilirse, sözlükteki en son yılı (en güncel olanı) alır
+        en_son_yil = max(YILLIK_NET_ASGARI_UCRETLER.keys())
+        otomatik_asgari = YILLIK_NET_ASGARI_UCRETLER[en_son_yil]
+    # ---------------------------------------
+
+    calc = AktueryaHesaplayici(isim, cinsiyet, dt_str, kt_str, ibt_str, ht_str, mal, kusur, m_gecmis, otomatik_asgari)
     rapor = calc.hesapla()
     
     st.success("Rapor Hazır!")
